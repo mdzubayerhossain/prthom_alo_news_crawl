@@ -1,0 +1,91 @@
+import pandas as pd
+import torch
+from transformers import MBartForConditionalGeneration, MBartTokenizer
+import csv
+
+def summarize_bengali_with_transformer(text, max_length=150):
+    """
+    Summarize Bengali text using mBART model
+    """
+    if not text or len(text.strip()) == 0:
+        return ""
+    
+    # Load model and tokenizer - using mBART which supports Bengali
+    model_name = "facebook/mbart-large-50-many-to-many-mmt"
+    tokenizer = MBartTokenizer.from_pretrained(model_name)
+    model = MBartForConditionalGeneration.from_pretrained(model_name)
+    
+    # Set source language to Bengali
+    tokenizer.src_lang = "bn_IN"
+    
+    # Tokenize and generate summary
+    inputs = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True)
+    summary_ids = model.generate(
+        inputs["input_ids"], 
+        num_beams=4,
+        max_length=max_length,
+        early_stopping=True,
+        forced_bos_token_id=tokenizer.lang_to_id["bn_IN"]
+    )
+    
+    summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+    return summary
+
+def process_csv_with_transformer_summaries():
+    """
+    Read the CSV with Bengali articles, create summaries using transformer model,
+    and save to a new CSV file.
+    """
+    # Input and output files
+    input_csv = 'prothom_alo_full_content.csv'
+    output_csv = 'prothom_alo_with_transformer_summaries.csv'
+    
+    try:
+        # Read the CSV file
+        print(f"Reading CSV file: {input_csv}")
+        df = pd.read_csv(input_csv)
+        
+        # Check if the required column exists
+        if 'full_content' not in df.columns:
+            print("Error: 'full_content' column not found in the CSV.")
+            return
+        
+        # Add a new column with summaries
+        print("Creating transformer-based summaries...")
+        # Process a sample or the whole dataset
+        sample_size = min(100, len(df))  # Process first 100 or all if fewer
+        
+        # Create summaries for the sample
+        summaries = []
+        for i, row in df.head(sample_size).iterrows():
+            print(f"Processing article {i+1}/{sample_size}...")
+            summary = summarize_bengali_with_transformer(row['full_content'])
+            summaries.append(summary)
+            
+        # Add summaries to the dataframe
+        df_sample = df.head(sample_size).copy()
+        df_sample['transformer_summary'] = summaries
+        
+        # Save to a new CSV file
+        print(f"Saving results to: {output_csv}")
+        df_sample.to_csv(output_csv, index=False, quoting=csv.QUOTE_ALL)
+        
+        # Display some examples
+        print("\nSample summaries:")
+        for i, row in df_sample.head(5).iterrows():
+            title = row['title'] if 'title' in df.columns else 'N/A'
+            original = row['full_content']
+            summary = row['transformer_summary']
+            print(f"\nTitle: {title}")
+            print(f"Original length: {len(original.split())} words")
+            print(f"Summary length: {len(summary.split())} words")
+            print(f"Summary: {summary}")
+        
+        print(f"\nProcessing complete. Check {output_csv} for results.")
+        print(f"Total articles processed: {sample_size}")
+        
+    except Exception as e:
+        print(f"Error: {e}")
+
+if __name__ == "__main__":
+    process_csv_with_transformer_summaries()
